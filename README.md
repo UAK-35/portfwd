@@ -6,6 +6,13 @@ User-space TCP/UDP port forwarding services
 ## Summary
  This project contains two applications: tcpfwd, udpfwd, which are for TCP and UDP port forwarding literally.
  Written in pure C, with libevent2 library.
+
+##### Details of modificatons by UAK-35 - commit 1
+    1) Added CI file .travis.yml FROM https://github.com/muzea-ci/portfwd
+    2) Updated udpfwd.c FROM https://github.com/towserchen/portfwd
+    3) Updated udpfwd.c FROM https://github.com/V-E-O/portfwd
+    4) Updated tcpfwd.c FROM https://github.com/YueLun/portfwd
+    5) Added .gitignore file
  
 ## Usage ##
 

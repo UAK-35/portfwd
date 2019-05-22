@@ -20,6 +20,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 
 typedef int bool;
 #define true  1
@@ -227,8 +228,10 @@ static inline void release_proxy_conn(struct proxy_conn *conn,
 	
 	if (conn->cli_sock >= 0)
 		close(conn->cli_sock);
-	if (conn->svr_sock >= 0)
-		close(conn->svr_sock);
+	if (conn->svr_sock >= 0) {
+        close(conn->svr_sock);
+        return;
+    }
 	
 	if (conn->request.buf)
 		free(conn->request.buf);
@@ -236,6 +239,7 @@ static inline void release_proxy_conn(struct proxy_conn *conn,
 		free(conn->response.buf);
 	
 	free(conn);
+	conn = NULL;
 }
 
 /**
@@ -306,7 +310,8 @@ static struct proxy_conn *accept_and_connect(int lsn_sock, int *error)
 	struct sockaddr_storage cli_addr;
 	socklen_t cli_alen = sizeof(cli_addr);
 	struct proxy_conn *conn;
-	char s1[44] = ""; int n1 = 0;
+	char s1[44] = "";
+	int n1 = 0, iNodelay = 1;
 
 	cli_sock = accept(lsn_sock, (struct sockaddr *)&cli_addr, &cli_alen);
 	if (cli_sock < 0) {
@@ -324,6 +329,7 @@ static struct proxy_conn *accept_and_connect(int lsn_sock, int *error)
 	}
 	conn->cli_sock = cli_sock;
 	set_nonblock(conn->cli_sock);
+    setsockopt(conn->cli_sock, IPPROTO_TCP, TCP_NODELAY, (char *) &iNodelay, sizeof(iNodelay));
 	conn->cli_addr = cli_addr;
 	
 	/* Initiate the connection to server right now. */
@@ -338,6 +344,7 @@ static struct proxy_conn *accept_and_connect(int lsn_sock, int *error)
 	}
 	conn->svr_sock = svr_sock;
 	set_nonblock(conn->svr_sock);
+    setsockopt(conn->svr_sock, IPPROTO_TCP, TCP_NODELAY, (char *) &iNodelay, sizeof(iNodelay));
 	
 	/* Connect to real server. */
 	conn->svr_addr = g_dst_sockaddr;
@@ -716,4 +723,3 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
-

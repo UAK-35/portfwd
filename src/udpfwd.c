@@ -50,6 +50,19 @@ typedef int bool;
 #define LIST_POISON1  ((void *) 0x00100100)
 #define LIST_POISON2  ((void *) 0x00200200)
 
+void *debug_malloc(size_t size, const char *file, int line, const char *func) {
+    void *p = malloc(size);
+    printf("%s:%d:%s:malloc(%ld): p=0x%lx\n", file, line, func, size, (unsigned long) p);
+    return p;
+}
+
+#define malloc(s) debug_malloc(s, __FILE__, __LINE__, __func__)
+#define free(p)  do {                                                   \
+        printf("%s:%d:%s:free(0x%lx)\n", __FILE__, __LINE__,            \
+            __func__, (unsigned long)p);                                \
+        free(p);                                                        \
+} while (0)
+
 /*
  * Simple doubly linked list implementation.
  *
@@ -265,10 +278,11 @@ static struct h_cache *__h_cache_try_get(struct h_table *ht, void *key,
 {
 	struct h_bucket *b = &ht->base[ht->ops->hash(key) & (ht->size - 1)];
 	struct h_cache *he;
-	
+
+    /* loop bucket and cast the bucket_list_index ptr to h_cache. */
 	list_for_each_entry(he, &b->chain, list) {
 		if (ht->ops->comp_key(he, key) == 0) {
-			/* Pop-up from idle queue when reference leaves 0. */
+			/* Pop-up from idle queue when reference no longer is 0. */
 			if (++he->refs == 1) {
 				if (!list_entry_orphan(&he->idle_list))
 					list_del(&he->idle_list);
@@ -316,6 +330,9 @@ static inline struct h_cache *h_entry_try_get(struct h_table *ht, void *key,
 	return __h_cache_try_get(ht, key, create, modify);
 }
 
+/**
+ * Put connection to idle_queue, and update last_put timer.
+ */
 static void h_entry_put(struct h_cache *he)
 {
 	struct h_table *ht = he->table;
@@ -344,8 +361,8 @@ static int h_table_clear(struct h_table *ht)
 		list_del(&he->idle_list);
 		list_del(&he->list);
 
-		ht->ops->release(he);
 		h_table_len_dec(ht);
+        ht->ops->release(he);
 
 		count++;
 	}
@@ -383,8 +400,8 @@ static void __h_table_timeo_check(struct h_table *ht)
 		list_del(&he->idle_list);
 		list_del(&he->list);
 
-		ht->ops->release(he);
 		h_table_len_dec(ht);
+        ht->ops->release(he);
 	} /* while(!list_empty(&ht->idle_queue)) */
 	
 	printf("-- Live entries: %d\n", (int)ht->len);
@@ -616,7 +633,8 @@ static int proxy_conn_key_cmp_fn(struct h_cache *he, void *key)
 static void proxy_conn_release_fn(struct h_cache *he)
 {
 	struct proxy_conn *conn = container_of(he, struct proxy_conn, h_cache);
-	release_proxy_conn(conn, NULL, 0);
+    printf("proxy_conn_release_fn is executing\n");
+    release_proxy_conn(conn, NULL, 0);
 }
 
 static struct h_operations proxy_conn_hops = {
@@ -689,14 +707,16 @@ static inline void release_proxy_conn(struct proxy_conn *conn,
 		}
 	}
 	
-	if (conn->svr_sock >= 0)
-		close(conn->svr_sock);
+	if (conn->svr_sock >= 0) {
+        close(conn->svr_sock);
+        return;
+    }
 	
 	free(conn);
+	conn = NULL;
 }
 
-static struct proxy_conn *new_connection(int lsn_sock, int epfd,
-		struct sockaddr_storage *cli_addr, int *error)
+static struct proxy_conn *new_connection(int lsn_sock, int epfd, struct sockaddr_storage *cli_addr, int *error)
 {
 	struct proxy_conn *conn;
 	int svr_sock;
@@ -728,8 +748,7 @@ static struct proxy_conn *new_connection(int lsn_sock, int epfd,
 
 	sockaddr_to_print(&conn->cli_addr, s1, &n1);
 	
-	if ((connect(conn->svr_sock, (struct sockaddr *)&conn->svr_addr,
-		g_dst_addrlen)) == 0) {
+	if ((connect(conn->svr_sock, (struct sockaddr *)&conn->svr_addr, g_dst_addrlen)) == 0) {
 		/* Connected, prepare for data forwarding. */
 		struct epoll_event ev;
 		ev.data.ptr = conn;
@@ -752,7 +771,11 @@ static struct proxy_conn *get_conn_by_cli_addr(struct sockaddr_storage *cli_addr
 	if (!(he = h_entry_try_get(&g_conn_tbl, cli_addr, __proxy_conn_create_fn,
 		__proxy_conn_modify_fn)))
 		return NULL;
-	/* Single threaded, don't have to hold it. */
+    /**
+     * Single threaded, don't have to hold it.
+     * We should release the reference after connection used.
+     * Well, it's async, just put it here.
+     */
 	h_entry_put(he);
 	
 	return container_of(he, struct proxy_conn, h_cache);
@@ -998,10 +1021,16 @@ int main(int argc, char *argv[])
 			} else {
 				/* Data from server. */
 				conn = get_conn_by_evptr(evptr);
-				if ((rlen = recv(conn->svr_sock, buffer, sizeof(buffer), 0))
-					<= 0) {
-					/* Close the session. */
-					release_proxy_conn(conn, events + i + 1, nfds - 1 - i);
+				if ((rlen = recv(conn->svr_sock, buffer, sizeof(buffer), 0)) <= 0) {
+                    /**
+                     * Close the session.
+                     * Clean the cache as it can be used again after freed.
+                     */
+                    printf("closing the session\n");
+                    list_del(&conn->h_cache.idle_list);
+                    list_del(&conn->h_cache.list);
+                    release_proxy_conn(conn, events + i + 1, nfds - 1 - i);
+                    h_table_len_dec(conn->h_cache.table);
 					continue;
 				}
 				sendto(g_lsn_sock, buffer, rlen, 0, (struct sockaddr *)&conn->cli_addr,
