@@ -311,7 +311,7 @@ static struct proxy_conn *accept_and_connect(int lsn_sock, int *error)
 	socklen_t cli_alen = sizeof(cli_addr);
 	struct proxy_conn *conn;
 	char s1[44] = "";
-	int n1 = 0, iNodelay = 1;
+	int n1 = 0, iTcpNodelay = 1, iKeepAlive = 1, iTcpKeepIdle = 1 * 60, iTcpKeepInterval = 5 * 60, iTcpKeepCount = 10;
 
 	cli_sock = accept(lsn_sock, (struct sockaddr *)&cli_addr, &cli_alen);
 	if (cli_sock < 0) {
@@ -329,7 +329,11 @@ static struct proxy_conn *accept_and_connect(int lsn_sock, int *error)
 	}
 	conn->cli_sock = cli_sock;
 	set_nonblock(conn->cli_sock);
-    setsockopt(conn->cli_sock, IPPROTO_TCP, TCP_NODELAY, (char *) &iNodelay, sizeof(iNodelay));
+//    setsockopt(conn->cli_sock, SOL_SOCKET, SO_KEEPALIVE, (char *) &iKeepAlive, sizeof(iKeepAlive));
+    setsockopt(conn->cli_sock, IPPROTO_TCP, TCP_NODELAY, (char *) &iTcpNodelay, sizeof(iTcpNodelay));
+//    setsockopt(conn->cli_sock, IPPROTO_TCP, TCP_KEEPIDLE, (char *) &iTcpKeepIdle, sizeof(iTcpKeepIdle));
+//    setsockopt(conn->cli_sock, IPPROTO_TCP, TCP_KEEPINTVL, (char *) &iTcpKeepInterval, sizeof(iTcpKeepInterval));
+//    setsockopt(conn->cli_sock, IPPROTO_TCP, TCP_KEEPCNT, (char *) &iTcpKeepCount, sizeof(iTcpKeepCount));
 	conn->cli_addr = cli_addr;
 	
 	/* Initiate the connection to server right now. */
@@ -344,7 +348,8 @@ static struct proxy_conn *accept_and_connect(int lsn_sock, int *error)
 	}
 	conn->svr_sock = svr_sock;
 	set_nonblock(conn->svr_sock);
-    setsockopt(conn->svr_sock, IPPROTO_TCP, TCP_NODELAY, (char *) &iNodelay, sizeof(iNodelay));
+//    setsockopt(conn->svr_sock, SOL_SOCKET, SO_KEEPALIVE, (char *) &iKeepAlive, sizeof(iKeepAlive));
+    setsockopt(conn->svr_sock, IPPROTO_TCP, TCP_NODELAY, (char *) &iTcpNodelay, sizeof(iTcpNodelay));
 	
 	/* Connect to real server. */
 	conn->svr_addr = g_dst_sockaddr;

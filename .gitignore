@@ -1,3 +1,6 @@
 /.idea/
 /src/tcpfwd*
 /src/udpfwd*
+!/src/tcpfwd.c
+!/src/udpfwd.c
+/cmake-build-*/
